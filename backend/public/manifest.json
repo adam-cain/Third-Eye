@@ -1,0 +1,8 @@
+{
+    "name": "Real-Time Answers",
+    "short_name": "Answers",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#f0f0f0",
+    "theme_color": "#333"
+}

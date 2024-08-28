@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Answers</title>
+    <link rel="manifest" href="/manifest.json">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+
+        #answer-container {
+            padding: 20px;
+            background-color: #fff;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        #answer {
+            font-size: 1.5em;
+            color: #333;
+        }
+
+        #audio-player {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="answer-container">
+        <h1>Real-Time Answer</h1>
+        <div id="answer">Waiting for answer...</div>
+        <audio id="audio-player" controls hidden></audio>
+    </div>
+    <script>
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/service-worker.js')
+        .then(registration => {
+            console.log('Service Worker registered with scope:', registration.scope);
+            navigator.serviceWorker.ready.then(reg => {
+                reg.active.postMessage({ type: 'START_WEBSOCKET' });
+            });
+        })
+        .catch(error => {
+            console.log('Service Worker registration failed:', error);
+        });
+}
+
+const isLocalhost = window.location.hostname === 'localhost';
+const wsUrl = isLocalhost ? 'ws://localhost:4000' : 'wss://squid-app-hyn6l.ondigitalocean.app/';
+
+let ws;
+let timeoutBetweenPlays = 8000; // Timeout between audio plays in milliseconds
+
+function connectWebSocket() {
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+        console.log(`Connected to WebSocket server: ${wsUrl}`);
+    };
+
+    ws.onmessage = async (event) => {
+        const data = JSON.parse(event.data);
+        const answerElement = document.getElementById('answer');
+        const audioPlayer = document.getElementById('audio-player');
+
+        if (data.mute) {
+            audioPlayer.pause();
+            return;
+        }
+
+        answerElement.textContent = data.text;
+
+        // Decode base64 audio data and create a Blob URL
+        const audioBlob = new Blob([Uint8Array.from(atob(data.audio), c => c.charCodeAt(0))], { type: 'audio/mp3' });
+        const audioURL = URL.createObjectURL(audioBlob);
+
+        // Cache the audio data for background sync
+        const cache = await caches.open('v1');
+        await cache.put('/audio', new Response(JSON.stringify(data)));
+
+        // Update the audio source and set loop playback with timeout
+        audioPlayer.src = audioURL;
+        audioPlayer.hidden = false;
+
+        audioPlayer.onended = () => {
+            setTimeout(() => {
+                audioPlayer.play().catch(error => console.error('Error replaying audio:', error));
+            }, timeoutBetweenPlays);
+        };
+
+        audioPlayer.play().catch(error => console.error('Error playing audio:', error));
+    };
+
+    ws.onclose = () => {
+        console.log('Disconnected from WebSocket server');
+        // Try to reconnect after a short delay
+        setTimeout(connectWebSocket, 5000);
+    };
+
+    ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+    };
+}
+
+connectWebSocket();
+
+if ('mediaSession' in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+        title: 'Your Media Title',
+        artist: 'Artist Name',
+        album: 'Album Name',
+        artwork: [
+            { src: 'path/to/artwork.jpg', sizes: '96x96', type: 'image/jpg' },
+            { src: 'path/to/artwork.jpg', sizes: '128x128', type: 'image/jpg' },
+            { src: 'path/to/artwork.jpg', sizes: '192x192', type: 'image/jpg' },
+            { src: 'path/to/artwork.jpg', sizes: '256x256', type: 'image/jpg' },
+            { src: 'path/to/artwork.jpg', sizes: '384x384', type: 'image/jpg' },
+            { src: 'path/to/artwork.jpg', sizes: '512x512', type: 'image/jpg' },
+        ]
+    });
+
+    navigator.mediaSession.setActionHandler('nexttrack', () => {
+        console.log('Next track button pressed');
+        toggleRecording();
+    });
+
+    navigator.mediaSession.setActionHandler('previoustrack', () => {
+        console.log('Previous track button pressed');
+        toggleRecording();
+    });
+}
+
+let isRecording = false;
+let mediaRecorder;
+let audioChunks = [];
+
+async function toggleRecording() {
+    if (isRecording) {
+        stopRecording();
+    } else {
+        startRecording();
+    }
+}
+
+async function startRecording() {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream);
+
+    mediaRecorder.ondataavailable = (event) => {
+        audioChunks.push(event.data);
+    };
+
+    mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        audioChunks = [];
+        const audioBase64 = await blobToBase64(audioBlob);
+        
+        // Send the recorded audio to the server
+        const response = await fetch('/upload-audio', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ audio: audioBase64 })
+        });
+
+        if (!response.ok) {
+            console.error('Failed to upload audio');
+        } else {
+            console.log('Audio uploaded successfully');
+        }
+    };
+
+    mediaRecorder.start();
+    isRecording = true;
+    console.log('Recording started');
+}
+
+function stopRecording() {
+    mediaRecorder.stop();
+    isRecording = false;
+    console.log('Recording stopped');
+}
+
+function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result.split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}
+    </script>
+</body>
+
+</html>

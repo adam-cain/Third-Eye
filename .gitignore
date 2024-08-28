@@ -1,0 +1,7 @@
+backend/.env
+backend/dist
+backend/node_modules
+backend/src/api/uploads/*
+backend/src/api/audio/*
+backend/images
+backend/package-lock.json
