@@ -120,7 +120,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **ESP32 Community:** For extensive documentation and support.
 - **Express.js:** For providing a robust and flexible backend framework.
 - **OpenAI:** For AI models and API integration.
-
----
-
-**Third Eye** is an ongoing project, and we are continuously improving it. Stay tuned for updates!
